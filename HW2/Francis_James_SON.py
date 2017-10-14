@@ -79,6 +79,8 @@ if __name__ == '__main__':
     # UserID::MovieID::Rating::Timestamp
     ratings_data = sc.textFile(sys.argv[3])
     support_thr  = int(sys.argv[4])
+
+    # Set up chunks for SON.
     numPartitions = 10
     support_adjustment_p = 1 / float(numPartitions)
 
@@ -87,6 +89,7 @@ if __name__ == '__main__':
     genders_map = genders.collectAsMap()
 
     def partitioned_apriori(partition):
+        print("Patition number is: {}".format(len(partition)))
         basket_of_ratings = []
         for ((user, gender), movies) in partition:
             basket_of_ratings.append(movies)
@@ -112,13 +115,10 @@ if __name__ == '__main__':
                              .groupByKey()
 
         # Create a known number of chunks to break up support by.
-
         male_user_baskets.repartition(numPartitions)
-
 
         # This should produce (k,v) pairs like (Frequent_Item, 1)
         freq_movies = male_user_baskets.mapPartitions(partitioned_apriori)
-        # freq_movies = male_user_baskets.mapPartitions(lambda (gender, movies_rated): apriori(movies_rated, support_thr)) \
         #                                .reduceByKey(lambda (freq_a, freq_b): dict(freq_a.items() + freq_b.items() + [(key, a[k] + b[k]) for key in freq_b.viewkeys() & freq_a.viewkeys()]))
 
         # Reduce 1: (I think this reduce task is just for the benefit of the grouping operation, I could just explicitly group)
@@ -130,7 +130,7 @@ if __name__ == '__main__':
 
         print(freq_movies.collect())
 
-        # Map
+        # Map 2:
         #     Each Map task takes output from first Reduce task AND a chunk of the total input data file
         #     All candidate itemsets go to every Map task
         #     Count occurrences of each candidate itemset among the baskets in the input chunk
