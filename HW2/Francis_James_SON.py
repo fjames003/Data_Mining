@@ -20,13 +20,8 @@ def apriori(baskets, support):
 
     # Get counts of individual items in the basket
     # basket_contains_more_baskets = any(isinstance(basket, list) for basket in baskets)
-    basket_contains_more_baskets = True
-    if basket_contains_more_baskets:
-        for single_basket in baskets:
-            for item in single_basket:
-                item_counts[item] = item_counts.get(item, 0) + 1
-    else:
-        for item in baskets:
+    for single_basket in baskets:
+        for item in single_basket:
             item_counts[item] = item_counts.get(item, 0) + 1
     # Prune items without min support
     freq_items[1] = [singleton for singleton in item_counts if item_counts[singleton] >= support]
@@ -35,6 +30,7 @@ def apriori(baskets, support):
     basket_groups = []
     while freq_items[k - 1]:
 
+        # Generate candidates
         if k == 2:
             candidate_items = [comb for comb in combinations(freq_items[1], 2)]
         # Must use monotonicity to avoid creating unecessary pairs
@@ -44,32 +40,23 @@ def apriori(baskets, support):
         if not candidate_items:
             break
         else:
-            # Generate pairs from basket to count against
-            # One hell of a list comprehension...
+            # Remove non frequent singletons to make computation easier
+            new_baskets = []
+            for basket in baskets:
+                new_basket = filter(lambda movie: movie in freq_items[1], basket)
+                new_baskets.append(new_basket)
+            baskets = new_baskets
 
-            if basket_contains_more_baskets:
-                # Remove non frequent singletons to make computation easier
-                new_baskets = []
-                for basket in baskets:
-                    new_basket = filter(lambda movie: movie in freq_items[1], basket)
-                    new_baskets.append(new_basket)
-                baskets = new_baskets
+            # Prune
+            item_counts = {}
+            for basket in baskets:
 
+                basket_group = [comb for comb in combinations(basket, k)]
 
-                item_counts = {}
-                for basket in baskets:
+                for tup in basket_group:
+                    if tup in candidate_items[k]:
+                        item_counts[freq_tuple] = item_counts.get(freq_tuple, 0) + basket_group.count(freq_tuple)
 
-                    basket_group = [comb for comb in combinations(basket, k)]
-
-                    for tup in basket_group:
-                        if tup in candidate_items[k]:
-                            item_counts[freq_tuple] = item_counts.get(freq_tuple, 0) + basket_group.count(freq_tuple)
-
-                # basket_groups = [comb for basket in baskets for comb in combinations(basket, k)]
-            else:
-                basket_groups = [comb for comb in combinations(baskets, k)]
-            # freq_items[k] = [freq_tuple for freq_tuple in candidate_items if
-                            #  basket_groups.count(freq_tuple) >= support]
             freq_items[k] = [freq_tuple for freq_tuple in candidate_items if
                              item_counts.get(freq_tuple, 0) >= support]
             k += 1
