@@ -24,7 +24,7 @@ def apriori(baskets, support):
         for item in single_basket:
             item_counts[item] = item_counts.get(item, 0) + 1
     # Prune items without min support
-    freq_items[1] = [singleton for singleton in item_counts if item_counts[singleton] >= support]
+    freq_items[1] = set(singleton for singleton in item_counts if item_counts[singleton] >= support)
 
     k = 2
     basket_groups = []
@@ -32,33 +32,43 @@ def apriori(baskets, support):
 
         # Generate candidates
         if k == 2:
-            candidate_items = [comb for comb in combinations(freq_items[1], 2)]
+            candidate_items = set(comb for comb in combinations(freq_items[1], 2))
         # Must use monotonicity to avoid creating unecessary pairs
         else:
-            distinct_values = set(value for tup in freq_items[k - 1] for value in tup)
-            candidate_items= [comb for comb in combinations(distinct_values, k)]
+            print("getting distinct values")
+            candidate_items = set(value for tup in freq_items[k - 1] for value in tup)
+            print("Found {0} distinct items, now making combinations".format(len(candidate_items)))
+            candidate_items = set(comb for comb in combinations(candidate_items, k))
+            print("Now have combinations of distinct... we have {0} combos".format(len(candidate_items)))
         if not candidate_items:
             break
         else:
             # Remove non frequent singletons to make computation easier
             new_baskets = []
+            # Should find a way to use RDD and filter...
             for basket in baskets:
                 new_basket = filter(lambda movie: movie in freq_items[1], basket)
                 new_baskets.append(new_basket)
             baskets = new_baskets
-
             # Prune
             item_counts = {}
             for basket in baskets:
 
-                basket_group = [comb for comb in combinations(basket, k)]
+                # Combinations are unique and thus I know the count of each tuple is 1...
+                basket_group = set(comb for comb in combinations(basket, k))
 
-                for tup in basket_group:
-                    if tup in candidate_items[k]:
-                        item_counts[freq_tuple] = item_counts.get(freq_tuple, 0) + basket_group.count(freq_tuple)
-
-            freq_items[k] = [freq_tuple for freq_tuple in candidate_items if
-                             item_counts.get(freq_tuple, 0) >= support]
+                # Can also filter basket_group for tuples in candidate_items and then run a map to count all tuples left in basket group
+                # Just need basket group to be a RDD
+                # candidate_basket = filter(lambda tup: tup in candidate_items, basket_group)
+                candidate_basket = basket_group.intersection(candidate_items)
+                for tup in candidate_basket:
+                    item_counts[tup] = item_counts.get(tup, 0) + 1
+                # for tup in basket_group:
+                #     if tup in candidate_items:
+                #         item_counts[tup] = item_counts.get(tup, 0) + basket_group.count(tup)
+            freq_items[k] = set(key for key,value in item_counts.items() if value >= support)
+            for key in freq_items:
+                print("Key is: {0}".format(key))
             k += 1
     return freq_items
 
@@ -89,11 +99,9 @@ if __name__ == '__main__':
     genders_map = genders.collectAsMap()
 
     def partitioned_apriori(partition):
-        print("Patition number is: {}".format(len(partition)))
         basket_of_ratings = []
         for ((user, gender), movies) in partition:
             basket_of_ratings.append(movies)
-
         freq_subset = apriori(basket_of_ratings, support_thr * support_adjustment_p)
         return [(movie, 1) for tuple_size in freq_subset for movie in freq_subset[tuple_size]]
 
@@ -109,10 +117,19 @@ if __name__ == '__main__':
             # Output is set of key-value pairs (F, 1) where F is a frequent itemset from sample
 
         # Generate baskets from rating file consistent with assignment specs...
+        #  More specifically, the movie ids are unique within each basket. aka use a set...
+
+        # Need explicit function in order to return set after the addition
+        def set_adder(the_set, value):
+            the_set.add(value)
+            return the_set
+        def set_combiner(s1, s2):
+            return s1.union(s2)
+
         male_user_baskets = ratings_data.map(lambda line: line.split("::")) \
                              .map(lambda line: ((int(line[0]), genders_map[int(line[0])]), int(line[1]))) \
                              .filter(lambda ((user, gender), movie): gender is 'M') \
-                             .groupByKey()
+                             .aggregateByKey(set(), set_adder, set_combiner)
 
         # Create a known number of chunks to break up support by.
         male_user_baskets.repartition(numPartitions)
@@ -128,7 +145,7 @@ if __name__ == '__main__':
             # These are candidate itemsets
         # freq_movies = freq_movies.groupByKey()
 
-        print(freq_movies.collect())
+        print(freq_movies.first())
 
         # Map 2:
         #     Each Map task takes output from first Reduce task AND a chunk of the total input data file
