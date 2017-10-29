@@ -13,65 +13,59 @@ from itertools import combinations
 # Keep going until candidate set = null or freq set = null
 # Item counts of size 1
 
-def apriori(baskets, support):
+def apriori(baskets, freq_singletons, support):
+    # Baskets only contain frequent singletons...
     item_counts     = {}
     freq_items      = {}
     candidate_items = []
 
-    # Get counts of individual items in the basket
-    # basket_contains_more_baskets = any(isinstance(basket, list) for basket in baskets)
-    for single_basket in baskets:
-        for item in single_basket:
-            item_counts[item] = item_counts.get(item, 0) + 1
-    # Prune items without min support
-    freq_items[1] = set(singleton for singleton in item_counts if item_counts[singleton] >= support)
-
     k = 2
-    basket_groups = []
-    while freq_items[k - 1]:
+    while k == 2 or freq_items[k - 1]:
         print("The Value of K is: {0}".format(k))
 
         # Generate candidates
         print("\tCreating Candidate Items")
         if k == 2:
-            candidate_items = set(comb for comb in combinations(freq_items[1], 2))
+            candidate_items = set(comb for comb in combinations(freq_singletons, 2))
         # Must use monotonicity to avoid creating unecessary pairs
         else:
-            # First find the distinct items from pairs, and use to make triples
+            # DONT USE COMBINATIONS FOR MORE THSN PAIRS
+            # This is not the fastest, but will save a lot of RAM...
+            def check_candidates(comb, freq_items, k):
+                components = set(part for part in combinations(comb, k - 1))
+                return all([(part in freq_items) for part in components])
+
+            # Actually use monotonicity...
             candidate_items = set(value for tup in freq_items[k - 1] for value in tup)
             # Now make k combinations with distinct items
-            candidate_items = set(comb for comb in combinations(candidate_items, k))
+            candidate_items = set(comb for comb in combinations(candidate_items, k) if check_candidates(comb, freq_items[k - 1], k))
         if not candidate_items:
             break
         else:
-            print("\tRemoving non-frequent items from baskets")
-            # Remove non frequent singletons to make computation easier
-            new_baskets = []
-            # Should find a way to use RDD and filter...
-            # May need to broadcast freq_items
-            # rdd.foreach(lambda basket: basket.filter(lambda movie: movie in freq_items[1]))
-            for basket in baskets:
-                new_basket = filter(lambda movie: movie in freq_items[1], basket)
-                new_baskets.append(new_basket)
-            baskets = new_baskets
-
+            if k == 3:
+                print(sorted(candidate_items))
+            print("\tFound {0} candidate items".format(len(candidate_items)))
             print("\tGenerating combinations of basket items and counting") # By far the slowest step...
-            # Generate the pairs found in a given basket in order to count
+            new_baskets = []
             item_counts = {}
             for basket in baskets:
+                new_baskets.append(basket)
                 # Combinations are unique and thus I know the count of each tuple is 1...
-                basket_group = set(comb for comb in combinations(basket, k))
-
-                # Can also filter basket_group for tuples in candidate_items and then run a map to count all tuples left in basket group
-                # Just need basket group to be a RDD
-                candidate_basket = basket_group.intersection(candidate_items)
-                for tup in candidate_basket:
-                    item_counts[tup] = item_counts.get(tup, 0) + 1
-
+                if k == 2:
+                    candidate_basket = set(comb for comb in combinations(basket, k))
+                    candidate_basket = candidate_basket.intersection(candidate_items)
+                    print(candidate_basket)
+                    for tup in candidate_basket:
+                        item_counts[tup] = item_counts.get(tup, 0) + 1
+                else:
+                    for candidate in candidate_items:
+                        if set(candidate) < set(basket):
+                            item_counts[candidate] = item_counts.get(candidate, 0) + 1
+            baskets = new_baskets
             print("\tPruning")
+
             # Now that we have all the counts, prune with support
             freq_items[k] = set(key for key,value in item_counts.items() if value >= support)
-
             # Increment the tuple size
             k += 1
     # Dictionary where key is the tuple size and value is set of items with enough support
@@ -97,7 +91,7 @@ if __name__ == '__main__':
 
     genders = users_data.map(lambda line: line.split("::")).map(lambda line: (int(line[0]), str(line[1])))
     # Map that looks like {User 1: Gender 1, User 2: Gender 2...}
-    genders_map = genders.collectAsMap()
+    genders_map = sc.broadcast(genders.collectAsMap())
 
     if case_number == 1:
         # Run SON to find FREQUENT MOVIES RATED BY MALE USERS
@@ -111,10 +105,18 @@ if __name__ == '__main__':
         # Generate baskets from rating file consistent with assignment specs...
         #  More specifically, the movie ids are unique within each basket. aka use a set...
 
-        male_user_baskets = ratings_data.map(lambda line: line.split("::")) \
-                             .map(lambda line: ((int(line[0]), genders_map[int(line[0])]), int(line[1]))) \
+        male_user_ratings = ratings_data.map(lambda line: line.split("::")) \
+                             .map(lambda line: ((int(line[0]), genders_map.value[int(line[0])]), int(line[1]))) \
                              .filter(lambda ((user, gender), movie): gender is 'M') \
-                             .groupByKey()
+                             .map(lambda ((user, gender), movie): (user, movie))
+
+        frequent_singletons = male_user_ratings.map(lambda (user, movie): (movie, 1)) \
+                                               .reduceByKey(lambda acc, count: acc + count) \
+                                               .filter(lambda (movie, count): count >= support_thr) \
+                                               .map(lambda (movie, count): movie)
+        broadcasted_singletons = sc.broadcast(frequent_singletons.collect())
+        male_user_baskets = male_user_ratings.filter(lambda (user, movie): movie in broadcasted_singletons.value).groupByKey().map(lambda (user, movies): movies)
+
 
         # Set up chunks for SON.
         numPartitions = 4
@@ -125,16 +127,17 @@ if __name__ == '__main__':
 
         # This is my first problem, I am passing apriori a list, when I want to pass an RDD...
         # My second problem is that groupByKey() returns 'ResultIterable'...
-        def partitioned_apriori(iterator):
-            basket_of_ratings = []
-            for ((user, gender), movies) in iterator:
-                basket_of_ratings.append(movies)
-            freq_subset = apriori(basket_of_ratings, support_thr * support_adjustment_p)
-            return [(movie, 1) for tuple_size in freq_subset for movie in freq_subset[tuple_size]]
+        def partitioned_apriori(index, iterator):
+            print("Called on partition {0}".format(index))
+            freq_subset = apriori(iterator, broadcasted_singletons.value, support_thr)
+            return [[candidate for candidate in freq_subset[tuple_size]] for tuple_size in freq_subset]
 
         # This should produce (k,v) pairs like (Frequent_Item, 1)
-        freq_movies = male_user_baskets.mapPartitions(partitioned_apriori)
-        print(freq_movies.take(5))
+        freq_movies = male_user_baskets.mapPartitionsWithIndex(partitioned_apriori, True)
+        freq_movies_final = freq_movies.sortByKey().collect()
+        print(broadcasted_singletons.value)
+        print(freq_movies_final[1])
+        print(freq_movies_final[0])
 
         # Reduce 1: (I think this reduce task is just for the benefit of the grouping operation, I could just explicitly group)
             # Each reduce task is assigned set of keys, which are itemsets
