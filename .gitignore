@@ -1,0 +1,14 @@
+*.idea*
+*.xml
+*$anonfun$*
+*.class
+*.cache
+*streams*
+*resolution-cache*
+*.zip
+HW1/scala_task_1/target/.history
+HW2/build.sbt
+HW2/project/
+HW2/target/
+HW3/Francis_James_hw3/
+HW3/tester/
