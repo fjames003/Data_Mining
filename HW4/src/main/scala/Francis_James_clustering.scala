@@ -1,6 +1,4 @@
 import org.apache.spark.{SparkConf, SparkContext}
-import scala.collection.mutable.{ArrayBuffer, PriorityQueue}
-import sys.process._
 
 object Francis_James_clustering {
   def main(args: Array[String]): Unit = {
@@ -15,7 +13,7 @@ object Francis_James_clustering {
                       + math.pow(point_a._4 - point_b._4, 2))
     }
 
-    def compute_centroid(cluster: ArrayBuffer[(Double, Double, Double, Double, String)]):
+    def compute_centroid(cluster: Array[(Double, Double, Double, Double, String)]):
     (Double, Double, Double, Double, String) = {
       val dim = cluster.length.toDouble
       cluster.reduce{(cluster_1, cluster_2) => (
@@ -27,8 +25,8 @@ object Francis_James_clustering {
     }
 
     // my_order takes a distance between two clusters and returns the distance to order by...
-    def my_order(flower: (Double, (ArrayBuffer[(Double, Double, Double, Double, String)],
-                                   ArrayBuffer[(Double, Double, Double, Double, String)]))) = {
+    def my_order(flower: (Double, (Array[(Double, Double, Double, Double, String)],
+                                   Array[(Double, Double, Double, Double, String)]))) = {
       flower._1
     }
 
@@ -51,19 +49,18 @@ object Francis_James_clustering {
     val distances = data_with_index.cartesian(data_with_index).filter{ case (flower1, flower2) =>
       flower1._1 < flower2._1
     }.map{ case (flower1, flower2) =>
-      (euclid_dist(flower1._2, flower2._2), (ArrayBuffer(flower1._2), ArrayBuffer(flower2._2)))
+      (euclid_dist(flower1._2, flower2._2), (Array(flower1._2), Array(flower2._2)))
     }
     // Distance_array is now an array where each entry is a distance between two clusters (array of single items)
     val distance_array = distances.collect()
 
     // Keep track of clusters
-    var clusters = data.map{ArrayBuffer(_)}.collect()
-//    data.collect().foreach(flower => clusters = clusters.union(Array(ArrayBuffer(flower))))
+    var clusters = data.map{Array(_)}.collect()
 
     // Use priorityQueue to hold distances in order to be more efficient
     val dist_que = new scala.collection.mutable.PriorityQueue
-      [(Double, (ArrayBuffer[(Double, Double, Double, Double, String)],
-                 ArrayBuffer[(Double, Double, Double, Double, String)])
+      [(Double, (Array[(Double, Double, Double, Double, String)],
+                 Array[(Double, Double, Double, Double, String)])
         )]()(Ordering.by(my_order).reverse)
 
     // Add all distances to PriorityQueue for singleton clusters
@@ -74,11 +71,11 @@ object Francis_James_clustering {
       // Find two closest clusters
       val (cluster1, cluster2) = dist_que.dequeue()._2
       // Remove the two clusters from our list of clusters
-      clusters = clusters.filterNot(flower => flower.equals(cluster1) || flower.equals(cluster2))
+      clusters = clusters.filterNot(flower => flower.sameElements(cluster1) || flower.sameElements(cluster2))
 
       val new_cluster = cluster1 ++ cluster2
       val new_centroid = compute_centroid(new_cluster)
-      val new_queue = dist_que.dequeueAll.filter{ case (_, (c1, c2)) => ! c1.equals(cluster1) && ! c1.equals(cluster2) && ! c2.equals(cluster1) && ! c2.equals(cluster2)}
+      val new_queue = dist_que.dequeueAll.filter{ case (_, (c1, c2)) => ! c1.sameElements(cluster1) && ! c1.sameElements(cluster2) && ! c2.sameElements(cluster1) && ! c2.sameElements(cluster2)}
       new_queue.foreach(dist_que.enqueue(_))
       for (cluster <- clusters) {
         val c_centroid = compute_centroid(cluster)
@@ -99,10 +96,10 @@ object Francis_James_clustering {
 //      }
     }
     // 3. Assign each final cluster a name by choosing the most frequently occurring class label of the examples in the cluster.
-    def display_clusters(clusters: Array[ArrayBuffer[(Double, Double, Double, Double, String)]]): Unit = {
-      val counts = ArrayBuffer[(Int, Int, Int)]()
+    def display_clusters(clusters: Array[Array[(Double, Double, Double, Double, String)]]): Unit = {
+      val counts = Array[(Int, Int, Int)]()
       clusters.zipWithIndex.foreach{ case (cluster, index) =>
-        counts.append((0,0,0))
+        counts.union(Array(0,0,0))
         cluster.foreach{flower =>
           flower._5 match {
             case value if value == "Iris-setosa" =>
