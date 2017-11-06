@@ -4,7 +4,7 @@ import sys.process._
 
 object Francis_James_clustering {
   def main(args: Array[String]): Unit = {
-    require(args.length <= 2, "Please provide an input file and the number of clusters")
+//    require(args.length >= 2, "Please provide an input file and the number of clusters")
 
     // Function to return the euclidean distance between two tuple5.
     def euclid_dist(point_a: (Double, Double, Double, Double, _), point_b: (Double, Double, Double, Double, _)):
@@ -27,7 +27,8 @@ object Francis_James_clustering {
     }
 
     // my_order takes a distance between two clusters and returns the distance to order by...
-    def my_order(flower: (Double, (_, _))) = {
+    def my_order(flower: (Double, (ArrayBuffer[(Double, Double, Double, Double, String)],
+                                   ArrayBuffer[(Double, Double, Double, Double, String)]))) = {
       flower._1
     }
 
@@ -38,11 +39,12 @@ object Francis_James_clustering {
     val sc = new SparkContext(conf)
 
     // (sepal length, sepal width, petal length, petal width, iris class)
-    val data = sc.textFile(args(0)).map{line =>
+    val data = sc.textFile("../given_files/Iris/iris_data.csv").map{line =>
       val split = line.split(",")
       (split(0).toDouble, split(1).toDouble, split(2).toDouble, split(3).toDouble, split(4))
     }
-    val cluster_size = args(1).toInt
+//    val cluster_size = args(1).toInt
+    val cluster_size = 3
     val data_with_index = data.zipWithIndex().map{ case (k, v) => (v, k)}
 
     // Compute	pairwise	dist.	of	all	points
@@ -55,8 +57,8 @@ object Francis_James_clustering {
     val distance_array = distances.collect()
 
     // Keep track of clusters
-    val clusters = new ArrayBuffer[ArrayBuffer[(Double, Double, Double, Double, String)]]()
-    data.collect().foreach(flower => clusters.append(ArrayBuffer(flower)))
+    var clusters = data.map{ArrayBuffer(_)}.collect()
+//    data.collect().foreach(flower => clusters = clusters.union(Array(ArrayBuffer(flower))))
 
     // Use priorityQueue to hold distances in order to be more efficient
     val dist_que = new scala.collection.mutable.PriorityQueue
@@ -72,8 +74,7 @@ object Francis_James_clustering {
       // Find two closest clusters
       val (cluster1, cluster2) = dist_que.dequeue()._2
       // Remove the two clusters from our list of clusters
-      clusters.remove(clusters.indexOf(cluster1))
-      clusters.remove(clusters.indexOf(cluster2))
+      clusters = clusters.filterNot(flower => flower.equals(cluster1) || flower.equals(cluster2))
 
       val new_cluster = cluster1 ++ cluster2
       val new_centroid = compute_centroid(new_cluster)
@@ -85,7 +86,7 @@ object Francis_James_clustering {
         dist_que.enqueue((dist, (cluster, new_cluster)))
       }
       // Add merged clusters back into list of clusters
-      clusters.append(new_cluster)
+      clusters = clusters.union(Array(new_cluster))
       // Recompute cluster distances and load into dist_que
 //      dist_que.clear()
 //
@@ -98,7 +99,7 @@ object Francis_James_clustering {
 //      }
     }
     // 3. Assign each final cluster a name by choosing the most frequently occurring class label of the examples in the cluster.
-    def display_clusters(clusters: ArrayBuffer[ArrayBuffer[(Double, Double, Double, Double, String)]]): Unit = {
+    def display_clusters(clusters: Array[ArrayBuffer[(Double, Double, Double, Double, String)]]): Unit = {
       val counts = ArrayBuffer[(Int, Int, Int)]()
       clusters.zipWithIndex.foreach{ case (cluster, index) =>
         counts.append((0,0,0))
@@ -122,7 +123,7 @@ object Francis_James_clustering {
         val index = clusters.indexOf(cluster)
         val cluster_count = counts(index)
         cluster_count match {
-          case (setosa, viginica, versicolor) if setosa >= viginica && setosa >= versicolor =>
+          case (setosa, virginica, versicolor) if setosa >= virginica && setosa >= versicolor =>
             val name = "Iris-setosa"
             println("cluster " + name)
             cluster.foreach{ flower =>
@@ -132,7 +133,7 @@ object Francis_James_clustering {
               println(flower)
             }
             println("Number of points in this cluster: " + cluster.length)
-          case (setosa, viginica, versicolor) if viginica > setosa && viginica > versicolor =>
+          case (setosa, virginica, versicolor) if virginica > setosa && virginica > versicolor =>
             val name = "Iris-virginica"
             println("cluster " + name)
             cluster.foreach{ flower =>
@@ -142,7 +143,7 @@ object Francis_James_clustering {
               println(flower)
             }
             println("Number of points in this cluster: " + cluster.length)
-          case (setosa, viginica, versicolor) if versicolor > setosa && versicolor > viginica =>
+          case (setosa, virginica, versicolor) if versicolor > setosa && versicolor > virginica =>
             val name = "Iris-versicolor"
             println("cluster " + name)
             cluster.foreach{ flower =>
@@ -153,7 +154,6 @@ object Francis_James_clustering {
             }
             println("Number of points in this cluster: " + cluster.length)
         }
-
       }
       println("Number of points assigned to wrong cluster: " + number_wrong)
     }
