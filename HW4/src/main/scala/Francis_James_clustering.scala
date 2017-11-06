@@ -2,7 +2,7 @@ import org.apache.spark.{SparkConf, SparkContext}
 
 object Francis_James_clustering {
   def main(args: Array[String]): Unit = {
-//    require(args.length >= 2, "Please provide an input file and the number of clusters")
+   require(args.length >= 2, "Please provide an input file and the number of clusters")
 
     // Function to return the euclidean distance between two tuple5.
     def euclid_dist(point_a: (Double, Double, Double, Double, _), point_b: (Double, Double, Double, Double, _)):
@@ -37,12 +37,12 @@ object Francis_James_clustering {
     val sc = new SparkContext(conf)
 
     // (sepal length, sepal width, petal length, petal width, iris class)
-    val data = sc.textFile("../given_files/Iris/iris_data.csv").map{line =>
+    val data = sc.textFile(args(0)).map{line =>
       val split = line.split(",")
       (split(0).toDouble, split(1).toDouble, split(2).toDouble, split(3).toDouble, split(4))
     }
-//    val cluster_size = args(1).toInt
-    val cluster_size = 3
+    val cluster_size = args(1).toInt
+    // val cluster_size = 3
     val data_with_index = data.zipWithIndex().map{ case (k, v) => (v, k)}
 
     // Compute	pairwise	dist.	of	all	points
@@ -71,11 +71,20 @@ object Francis_James_clustering {
       // Find two closest clusters
       val (cluster1, cluster2) = dist_que.dequeue()._2
       // Remove the two clusters from our list of clusters
-      clusters = clusters.filterNot(flower => flower.sameElements(cluster1) || flower.sameElements(cluster2))
+      val c1_index = clusters.indexWhere(_.sameElements(cluster1))
+      clusters = clusters.slice(0, c1_index).union(clusters.slice(c1_index + 1, clusters.length + 1))
+      val c2_index = clusters.indexWhere(_.sameElements(cluster2))
+      clusters = clusters.slice(0, c2_index).union(clusters.slice(c2_index + 1, clusters.length + 1))
 
+      // Compute new cluster centroid and recompute distances to all other clusters
       val new_cluster = cluster1 ++ cluster2
       val new_centroid = compute_centroid(new_cluster)
-      val new_queue = dist_que.dequeueAll.filter{ case (_, (c1, c2)) => ! c1.sameElements(cluster1) && ! c1.sameElements(cluster2) && ! c2.sameElements(cluster1) && ! c2.sameElements(cluster2)}
+      val new_queue = dist_que.dequeueAll.filter{ case (_, (c1, c2)) =>
+          ! c1.sameElements(cluster1) &&
+          ! c1.sameElements(cluster2) &&
+          ! c2.sameElements(cluster1) &&
+          ! c2.sameElements(cluster2)
+      }
       new_queue.foreach(dist_que.enqueue(_))
       for (cluster <- clusters) {
         val c_centroid = compute_centroid(cluster)
@@ -84,22 +93,12 @@ object Francis_James_clustering {
       }
       // Add merged clusters back into list of clusters
       clusters = clusters.union(Array(new_cluster))
-      // Recompute cluster distances and load into dist_que
-//      dist_que.clear()
-//
-//      val cluster_with_index = clusters.zipWithIndex.map{ case (k, v) => (v, k)}
-//      for (cluster_1 <- cluster_with_index; cluster_2 <- cluster_with_index if cluster_1._1 < cluster_2._1) {
-//        val centroid1 = compute_centroid(cluster_1._2)
-//        val centroid2 = compute_centroid(cluster_2._2)
-//        val dist = euclid_dist(centroid1, centroid2)
-//        dist_que.enqueue((dist, (cluster_1._2, cluster_2._2)))
-//      }
     }
     // 3. Assign each final cluster a name by choosing the most frequently occurring class label of the examples in the cluster.
     def display_clusters(clusters: Array[Array[(Double, Double, Double, Double, String)]]): Unit = {
-      val counts = Array[(Int, Int, Int)]()
+      var counts = Array[(Int, Int, Int)]()
       clusters.zipWithIndex.foreach{ case (cluster, index) =>
-        counts.union(Array(0,0,0))
+        counts = counts.union(Array((0,0,0)))
         cluster.foreach{flower =>
           flower._5 match {
             case value if value == "Iris-setosa" =>
@@ -116,40 +115,28 @@ object Francis_James_clustering {
       }
       // Need to count number in wrong cluster as well.
       var number_wrong = 0
+      def wrong_update(name: String, cluster: Array[(Double, Double, Double, Double, String)]): Int = {
+          var current_count = 0
+          println("cluster " + name)
+          cluster.foreach{ flower =>
+            if (!flower._5.equals(name)) {
+              current_count += 1
+            }
+            println(flower)
+          }
+          println("Number of points in this cluster: " + cluster.length)
+          return current_count
+      }
       for (cluster <- clusters) {
         val index = clusters.indexOf(cluster)
         val cluster_count = counts(index)
         cluster_count match {
           case (setosa, virginica, versicolor) if setosa >= virginica && setosa >= versicolor =>
-            val name = "Iris-setosa"
-            println("cluster " + name)
-            cluster.foreach{ flower =>
-              if (!flower._5.equals(name)) {
-                number_wrong += 1
-              }
-              println(flower)
-            }
-            println("Number of points in this cluster: " + cluster.length)
+            number_wrong += wrong_update("Iris-setosa", cluster)
           case (setosa, virginica, versicolor) if virginica > setosa && virginica > versicolor =>
-            val name = "Iris-virginica"
-            println("cluster " + name)
-            cluster.foreach{ flower =>
-              if (!flower._5.equals(name)) {
-                number_wrong += 1
-              }
-              println(flower)
-            }
-            println("Number of points in this cluster: " + cluster.length)
+            number_wrong += wrong_update("Iris-virginica", cluster)
           case (setosa, virginica, versicolor) if versicolor > setosa && versicolor > virginica =>
-            val name = "Iris-versicolor"
-            println("cluster " + name)
-            cluster.foreach{ flower =>
-              if (!flower._5.equals(name)) {
-                number_wrong += 1
-              }
-              println(flower)
-            }
-            println("Number of points in this cluster: " + cluster.length)
+            number_wrong += wrong_update("Iris-versicolor", cluster)
         }
       }
       println("Number of points assigned to wrong cluster: " + number_wrong)
