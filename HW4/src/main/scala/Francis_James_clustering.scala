@@ -16,12 +16,13 @@ object Francis_James_clustering {
     def compute_centroid(cluster: Array[(Double, Double, Double, Double, String)]):
     (Double, Double, Double, Double, String) = {
       val dim = cluster.length.toDouble
-      cluster.reduce{(cluster_1, cluster_2) => (
-        (cluster_1._1 + cluster_2._1) / dim,
-        (cluster_1._2 + cluster_2._2) / dim,
-        (cluster_1._3 + cluster_2._3) / dim,
-        (cluster_1._4 + cluster_2._4) / dim,
+      val cluster_sum = cluster.reduce{(cluster_1, cluster_2) => (
+        cluster_1._1 + cluster_2._1,
+        cluster_1._2 + cluster_2._2,
+        cluster_1._3 + cluster_2._3,
+        cluster_1._4 + cluster_2._4,
         "")}
+      (cluster_sum._1 / dim, cluster_sum._2 / dim, cluster_sum._3 / dim, cluster_sum._4 / dim, "")
     }
 
     // my_order takes a distance between two clusters and returns the distance to order by...
@@ -99,7 +100,7 @@ object Francis_James_clustering {
       var counts = Array[(Int, Int, Int)]()
       clusters.zipWithIndex.foreach{ case (cluster, index) =>
         counts = counts.union(Array((0,0,0)))
-        cluster.foreach{flower =>
+        cluster.sortBy(flower => flower._1 + flower._2 + flower._3 + flower._4).foreach{flower =>
           flower._5 match {
             case value if value == "Iris-setosa" =>
               val current_count = counts(index)
