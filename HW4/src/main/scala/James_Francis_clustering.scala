@@ -27,9 +27,7 @@ object Francis_James_clustering {
 
     // my_order takes a distance between two clusters and returns the distance to order by...
     def my_order(flower: (Double, (Array[(Double, Double, Double, Double, String)],
-                                   Array[(Double, Double, Double, Double, String)]))) = {
-      flower._1
-    }
+                                   Array[(Double, Double, Double, Double, String)]))) = { flower._1 }
 
     // Using SparkConf to avoid deprecation warning.
     val conf = new SparkConf()
@@ -43,7 +41,6 @@ object Francis_James_clustering {
       (split(0).toDouble, split(1).toDouble, split(2).toDouble, split(3).toDouble, split(4))
     }
     val cluster_size = args(1).toInt
-    // val cluster_size = 3
     val data_with_index = data.zipWithIndex().map{ case (k, v) => (v, k)}
 
     // Compute	pairwise	dist.	of	all	points
@@ -73,34 +70,30 @@ object Francis_James_clustering {
       val (cluster1, cluster2) = dist_que.dequeue()._2
       // Remove the two clusters from our list of clusters
       val c1_index = clusters.indexWhere(_.sameElements(cluster1))
-      clusters = clusters.slice(0, c1_index).union(clusters.slice(c1_index + 1, clusters.length + 1))
+      clusters = clusters.zipWithIndex.filter(_._2 != c1_index).map(_._1)
       val c2_index = clusters.indexWhere(_.sameElements(cluster2))
-      clusters = clusters.slice(0, c2_index).union(clusters.slice(c2_index + 1, clusters.length + 1))
+      clusters = clusters.zipWithIndex.filter(_._2 != c2_index).map(_._1)
 
       // Compute new cluster centroid and recompute distances to all other clusters
       val new_cluster = cluster1 ++ cluster2
       val new_centroid = compute_centroid(new_cluster)
-      val new_queue = dist_que.dequeueAll.filter{ case (_, (c1, c2)) =>
+      dist_que.dequeueAll.filter{ case (_, (c1, c2)) =>
           ! c1.sameElements(cluster1) &&
           ! c1.sameElements(cluster2) &&
           ! c2.sameElements(cluster1) &&
           ! c2.sameElements(cluster2)
-      }
-      new_queue.foreach(dist_que.enqueue(_))
-      for (cluster <- clusters) {
-        val c_centroid = compute_centroid(cluster)
-        val dist = euclid_dist(c_centroid, new_centroid)
-        dist_que.enqueue((dist, (cluster, new_cluster)))
-      }
+      }.foreach(dist_que.enqueue(_))
+      clusters.foreach(cluster => dist_que.enqueue((euclid_dist(compute_centroid(cluster), new_centroid), (cluster, new_cluster))))
+
       // Add merged clusters back into list of clusters
       clusters = clusters.union(Array(new_cluster))
     }
     // 3. Assign each final cluster a name by choosing the most frequently occurring class label of the examples in the cluster.
-    def display_clusters(clusters: Array[Array[(Double, Double, Double, Double, String)]]): Unit = {
+    def display_clusters(clusters: Array[Array[(Double, Double, Double, Double, String)]]): String = {
       var counts = Array[(Int, Int, Int)]()
       clusters.zipWithIndex.foreach{ case (cluster, index) =>
         counts = counts.union(Array((0,0,0)))
-        cluster.sortBy(flower => flower._1 + flower._2 + flower._3 + flower._4).foreach{flower =>
+        cluster.foreach{flower =>
           flower._5 match {
             case value if value == "Iris-setosa" =>
               val current_count = counts(index)
@@ -116,32 +109,46 @@ object Francis_James_clustering {
       }
       // Need to count number in wrong cluster as well.
       var number_wrong = 0
-      def wrong_update(name: String, cluster: Array[(Double, Double, Double, Double, String)]): Int = {
+      var result = ""
+      def wrong_update(name: String, cluster: Array[(Double, Double, Double, Double, String)]): (Int, String) = {
+        var result = ""
           var current_count = 0
-          println("cluster " + name)
+//          println("cluster " + name)
+        result = result + "cluster " + name + "\n"
           cluster.foreach{ flower =>
             if (!flower._5.equals(name)) {
               current_count += 1
             }
-            println(flower)
+//            println(flower)
+            result = result + flower.toString() + "\n"
           }
-          println("Number of points in this cluster: " + cluster.length)
-          return current_count
+//          println("Number of points in this cluster: " + cluster.length)
+          result += "Number of points in this cluster: " + cluster.length.toString + "\n\n"
+        (current_count, result)
       }
       for (cluster <- clusters) {
         val index = clusters.indexOf(cluster)
         val cluster_count = counts(index)
         cluster_count match {
           case (setosa, virginica, versicolor) if setosa >= virginica && setosa >= versicolor =>
-            number_wrong += wrong_update("Iris-setosa", cluster)
-          case (setosa, virginica, versicolor) if virginica > setosa && virginica > versicolor =>
-            number_wrong += wrong_update("Iris-virginica", cluster)
+            val (new_wrong, new_result) = wrong_update("Iris-setosa", cluster)
+            number_wrong += new_wrong
+            result += new_result
+          case (setosa, virginica, versicolor) if virginica > setosa && virginica >= versicolor =>
+            val (new_wrong, new_result) = wrong_update("Iris-virginica", cluster)
+            number_wrong += new_wrong
+            result += new_result
           case (setosa, virginica, versicolor) if versicolor > setosa && versicolor > virginica =>
-            number_wrong += wrong_update("Iris-versicolor", cluster)
+            val (new_wrong, new_result) = wrong_update("Iris-versicolor", cluster)
+            number_wrong += new_wrong
+            result += new_result
         }
       }
-      println("Number of points assigned to wrong cluster: " + number_wrong)
+//      println("Number of points assigned to wrong cluster: " + number_wrong)
+      result += "Number of points assigned to wrong cluster: " + number_wrong.toString + "\n"
+      result
     }
-    display_clusters(clusters)
+
+    new java.io.PrintWriter("Francis_James_" + cluster_size.toString + ".txt") { write(display_clusters(clusters)); close }
   }
 }
